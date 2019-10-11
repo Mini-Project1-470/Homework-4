@@ -1,6 +1,6 @@
 ---
 title: "Homework 4"
-author: "Xindi Lu"
+author: "Xindi Lu, Jingyu Xie"
 date: "October 9, 2019"
 output: html_document
 ---
@@ -12,6 +12,9 @@ knitr::opts_chunk$set(echo = TRUE)
 ###Get Data
 ```{r}
 library(tidyverse)
+library(mgcv)
+library(scatterplot3d)
+library(lattice)
 
 basic <- read_tsv("basic.tsv", na = "\\N", quote = '')
 
@@ -19,8 +22,6 @@ rating <- read_tsv("rating.tsv", na = "\\N", quote = '')
 
 dat<-merge(basic,rating, by ="tconst")%>% filter(titleType == "movie") %>% 
   select(averageRating, startYear, runtimeMinutes, numVotes)
-
-summary(dat)
 
 ```
 
@@ -50,16 +51,24 @@ lm3 <- lm(averageRating ~ runtimeMinutes + factor(startYear), data = dat)
 summary(lm3)
 plot(lm3)
 
-lm4 <- lm(averageRating ~ log(runtimeMinutes) + factor(startYear), data = dat)
+lm4 <- lm(averageRating ~ log(runtimeMinutes) + factor(startYear), data = dat.nout)
 summary(lm4)
 
-#data.2 <- data[data$runtimeMinutes < 1000,] 
-#ggplot(data.2, aes(x =runtimeMinutes , y = averageRating)) + geom_point() + facet_wrap(~cut_number(startYear, n = 5)) + geom_smooth(method = "lm") + ylab("IMDB rating") + xlab("Length")
-#ggplot(data.2, aes(x =startYear , y = averageRating)) + geom_point() + facet_wrap(~cut_number(runtimeMinutes, n = 5)) + geom_smooth(method = "lm") + ylab("IMDB rating") + xlab("Year")
 
+ggplot(dat.nout, aes(x = log10(runtimeMinutes) , y = averageRating)) + geom_point() + facet_wrap(~cut_number(startYear, n = 5)) + geom_smooth(method = "lm") + ylab("IMDB rating") + xlab("Length")
+ggplot(dat.nout, aes(x = startYear , y = averageRating)) + geom_point() + facet_wrap(~cut_number(runtimeMinutes, n = 5)) + geom_smooth(method = "lm") + ylab("IMDB rating") + xlab("Year")
 ```
 
-Keep lm4, and need to log, since the modeling with log, its R-sqaured and adjusted R-squared is the largest
+```{r}
+outliers <- boxplot(dat$runtimeMinutes, plot=FALSE)$out
+dat[which(dat$runtimeMinutes %in% outliers),]
+
+dat.nout<- dat[-which(dat$runtimeMinutes %in% outliers),]
+```
+
+
+
+According to the ggplot of IMDB ratings over lenght of movies, we notice that most of the observations are gathered in the left corner of the graph. Therefore, we decide to take log10 of length to make the relationship more obvious to check.
 
 ####(b)Should you it a linear model or something curved?
 
@@ -68,30 +77,12 @@ All of them is linear model, accoding to the lm line in the plots, it's almost a
 ####(c)Is an additive model adequate?
 ```{r}
 #GAM
-
-
+IMDB.gam <- gam(averageRating ~ factor(startYear) + log(runtimeMinutes), data = dat.nout)
+summary(IMDB.gam)
 ```
 
 ####(d)Do you need to filter out or downweight tail values to prevent the fit from being dominated by outliers?
 
-```{r}
-
-boxplot(dat$runtimeMinutes)
-
-
-dat.test<- dat
-outliers <- boxplot(dat.test$runtimeMinutes, plot=FALSE)$out
-dat.test[which(dat.test$runtimeMinutes %in% outliers),]
-
-dat.nout<- dat.test[-which(dat.test$runtimeMinutes %in% outliers),]
-boxplot(dat.nout$runtimeMinutes)
-
-
-lm.nout <- lm(averageRating ~ log(runtimeMinutes) + factor(startYear), data = dat.nout)
-summary(lm.nout)
-
-
-```
 
 Yes. Since the Adjusted R-squared is bigger, whihc indicates a better model.
 
@@ -99,14 +90,17 @@ Yes. Since the Adjusted R-squared is bigger, whihc indicates a better model.
 
 ```{r}
 
+ggplot(dat.nout, aes(x = startYear , y =averageRating  )) + geom_point(aes(size = numVotes)) + scale_size_area() + geom_smooth(method.args = list(degree = 1), color = 'orange', se = FALSE) + geom_smooth(aes(weight = numVotes), method.args = list(degree = 1), se = FALSE)
+
+ggplot(dat.nout, aes(x = log10(runtimeMinutes) , y =averageRating  )) + geom_point(aes(size = numVotes)) + scale_size_area() + geom_smooth(method.args = list(degree = 1), color = 'orange', se = FALSE) + geom_smooth(aes(weight = numVotes), method.args = list(degree = 1), se = FALSE)
 ```
 
-
+According to the weighting plot,
 
 ###2
 ```{r}
 
-dat.nout %>% filter(startYear > 2003) %>% ggplot(aes(x = log10(runtimeMinutes), y = averageRating)) + geom_point() + 
+dat.nout %>% filter(startYear >= 2000) %>% ggplot(aes(x = runtimeMinutes, y = averageRating)) + geom_point() + 
   geom_smooth(method = "lm") + facet_wrap(~ startYear)
 
 ```
@@ -114,15 +108,13 @@ dat.nout %>% filter(startYear > 2003) %>% ggplot(aes(x = log10(runtimeMinutes), 
 ###3
 
 ```{r}
+dat.nna<- dat.nout[complete.cases(dat.nout), ]
 
-lm.new <- lm(averageRating ~ log(runtimeMinutes), data = dat.nout)
-predicted <- predict(lm.new)
+IMDB.predict = predict(IMDB.gam, newdata = dat.nna)
+IMDB.df = data.frame(dat.nna, fit = as.vector(IMDB.predict))
 
-predic.test<-predict(lm4)
+cloud(averageRating ~ runtimeMinutes * startYear, data = IMDB.df)
 
-# then create the scatterplot, may need to install the scatterplot3d
-library(scatterplot3d)
-scatterplot3d(log10(dat.nout$runtimeMinutes), dat.nout$startYear, predicted, angle = 75)
-
+wireframe(fit ~ runtimeMinutes * startYear, data = IMDB.df,  drape = TRUE)
 ```
 
